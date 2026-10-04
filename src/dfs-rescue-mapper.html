@@ -1,0 +1,840 @@
+<title>DFS Rescue Mapper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: map-first field console. Canvas left, controls right, stacked below 900px. The one bold move is the signal-orange search path on a quiet survey-grey ground. */
+:root{
+  --ground:#E8ECEE;--panel:#F6F8F9;--ink:#14212B;--muted:#55666F;--line:#C5CFD5;--accent:#C2440A;--on-accent:#FFFFFF;
+  --c-bldg:#AEB9C1;--c-road:#FDFEFE;--c-debris:#8A6038;--c-debris-ink:#4A3119;--c-visit:#0E93A6;--c-path:#E8590C;--c-cut:#D1344A;--c-base:#14212B;--c-letter:#FDFEFE;--c-target:#1F8A56;--c-veil:#FFFFFF;--c-net:#4A5F6E;
+  --f-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E161B;--panel:#151F26;--ink:#E5ECF0;--muted:#8CA0AD;--line:#27353F;--accent:#FF8A4C;--on-accent:#1B0E04;
+    --c-bldg:#0A1015;--c-road:#3A4C58;--c-debris:#A06F42;--c-debris-ink:#2E1D0D;--c-visit:#2EC3D4;--c-path:#FF8A4C;--c-cut:#FF5C73;--c-base:#E5ECF0;--c-letter:#0E161B;--c-target:#46C98A;--c-veil:#0E161B;--c-net:#9FB3C0;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E161B;--panel:#151F26;--ink:#E5ECF0;--muted:#8CA0AD;--line:#27353F;--accent:#FF8A4C;--on-accent:#1B0E04;
+  --c-bldg:#0A1015;--c-road:#3A4C58;--c-debris:#A06F42;--c-debris-ink:#2E1D0D;--c-visit:#2EC3D4;--c-path:#FF8A4C;--c-cut:#FF5C73;--c-base:#E5ECF0;--c-letter:#0E161B;--c-target:#46C98A;--c-veil:#0E161B;--c-net:#9FB3C0;
+  color-scheme:dark;
+}
+body{background:var(--ground);color:var(--ink);font:15px/1.55 var(--f-body)}
+.wrap{max-width:1200px;margin-inline:auto;padding-inline:16px;padding-block:28px 56px}
+header{margin-bottom:22px}
+.kicker{font:500 12px var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+h1{font:700 clamp(2.5rem,7vw,4rem)/.92 var(--f-display);text-transform:uppercase;letter-spacing:.01em;margin:0 0 10px;text-wrap:balance}
+.lede{max-width:64ch;margin:0;color:var(--muted)}
+.console{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+@media (max-width:900px){.console{grid-template-columns:minmax(0,1fr)}}
+.stage{min-width:0}
+.canvas-wrap{border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--c-bldg)}
+canvas{display:block;width:100%;height:auto;cursor:crosshair}
+canvas.paint{touch-action:none}
+.msg{min-height:3em;margin:12px 0 0;font-size:15px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin:10px 0 0;border-top:1px solid var(--line)}
+.stat{padding:10px 12px 10px 0;min-width:0}
+.stat dt{font:500 11px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0}
+.stat dd{font:500 22px var(--f-mono);font-variant-numeric:tabular-nums;margin:2px 0 0}
+.legend{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.legend li{display:flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border:1px solid var(--line);display:inline-block;border-radius:2px}
+.sw.ln{height:4px;border:0;border-radius:2px;width:18px}
+.sw.pin{border-radius:50%;border:0;color:var(--c-letter);font:600 9px/14px var(--f-mono);text-align:center}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 16px 16px}
+.grp{padding-block:14px;border-top:1px solid var(--line)}
+.grp:first-child{border-top:0}
+.panel h2{font:500 11px var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.btn{font:500 14px var(--f-body);padding:8px 12px;min-height:40px;border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.btn:hover{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--ground)}
+.btn:focus-visible,select:focus-visible,input[type=range]:focus-visible,input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.row .btn{flex:1 1 auto}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field{display:grid;gap:4px;margin-top:12px}
+.field label,.check{font-size:13px}
+.field .val{font-family:var(--f-mono);color:var(--muted)}
+select{font:14px var(--f-body);padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--ground);color:var(--ink);width:100%;min-height:40px}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.check{display:flex;align-items:center;gap:8px;margin-top:12px}
+.check input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+.hint{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.notes{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px;margin-top:36px;padding-top:24px;border-top:1px solid var(--line)}
+@media (max-width:900px){.notes{grid-template-columns:minmax(0,1fr)}}
+.notes h2{font:700 1.7rem/1 var(--f-display);text-transform:uppercase;margin:0 0 12px}
+pre{margin:0;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font:13px/1.6 var(--f-mono);overflow-x:auto}
+.notes p{margin:0 0 12px;max-width:62ch}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="kicker">AI search · Disaster response</p>
+    <h1>DFS Rescue Mapper</h1>
+    <p class="lede">Load a top-down street map, set a rescue base and a survivor location, and watch depth-first search crawl the real road lines, back out of dead ends, and show which parts of the network debris has cut off.</p>
+  </header>
+
+  <div class="console">
+    <section class="stage">
+      <div class="canvas-wrap"><canvas id="map" width="1000" height="620" aria-label="Street map with detected roads. Click near a road to place the start or target."></canvas></div>
+      <p id="msg" class="msg" aria-live="polite">Reading the map…</p>
+      <dl class="stats">
+        <div class="stat"><dt>Explored</dt><dd id="s-nodes">0</dd></div>
+        <div class="stat"><dt id="s-peak-l">Peak stack</dt><dd id="s-peak">0</dd></div>
+        <div class="stat"><dt>Backtracks</dt><dd id="s-back">0</dd></div>
+        <div class="stat"><dt>Route steps</dt><dd id="s-route">–</dd></div>
+        <div class="stat"><dt>Shortest</dt><dd id="s-short">–</dd></div>
+        <div class="stat"><dt>Cut-off roads</dt><dd id="s-cut">0</dd></div>
+      </dl>
+      <ul class="legend">
+        <li><span class="sw ln" style="background:var(--c-net)"></span>Detected road</li>
+        <li><span class="sw" style="background:var(--c-debris)"></span>Debris</li>
+        <li><span class="sw ln" style="background:var(--c-visit)"></span>Explored dead end</li>
+        <li><span class="sw ln" style="background:var(--c-path)"></span>Current path</li>
+        <li><span class="sw ln" style="background:var(--c-cut)"></span>Cut off from start</li>
+        <li><span class="sw pin" style="background:var(--c-base)">S</span>Rescue base</li>
+        <li><span class="sw pin" style="background:var(--c-target)">T</span>Survivors</li>
+      </ul>
+    </section>
+
+    <aside class="panel">
+      <div class="grp">
+        <h2>Map</h2>
+        <div class="row">
+          <button class="btn" id="b-new" type="button">New sample map</button>
+          <label class="btn" for="file" id="b-file" tabindex="0">Load map image</label>
+          <input type="file" id="file" accept="image/*">
+        </div>
+        <div class="field">
+          <label for="damage">Damage <span class="val" id="v-damage">25%</span></label>
+          <input type="range" id="damage" min="0" max="70" value="25">
+        </div>
+        <label class="check"><input type="checkbox" id="band"><span>Landslide band across the map</span></label>
+      </div>
+
+      <div class="grp">
+        <h2>Road detection</h2>
+        <div class="field" style="margin-top:0">
+          <label for="pol">Roads look</label>
+          <select id="pol"><option value="auto">Auto-detect</option><option value="dark">Darker than the ground</option><option value="light">Lighter than the ground</option></select>
+        </div>
+        <label class="check"><input type="checkbox" id="auto" checked><span>Auto sensitivity</span></label>
+        <div class="field" style="margin-top:8px">
+          <label for="thr">Sensitivity <span class="val" id="v-thr">0.05</span></label>
+          <input type="range" id="thr" min="0.01" max="0.25" step="0.005" value="0.05" disabled>
+        </div>
+        <label class="check"><input type="checkbox" id="under" checked><span>Show map image</span></label>
+        <label class="check"><input type="checkbox" id="net" checked><span>Show detected roads</span></label>
+        <p class="hint">Use a top-down map screenshot, not a first-person Street View photo. If a road is missing, trace it with Draw road.</p>
+      </div>
+
+      <div class="grp">
+        <h2>Place</h2>
+        <div class="tools" role="group" aria-label="Map tool">
+          <button class="btn" type="button" data-tool="start" aria-pressed="true">Start</button>
+          <button class="btn" type="button" data-tool="target" aria-pressed="false">Target</button>
+          <button class="btn" type="button" data-tool="debris" aria-pressed="false">Add debris</button>
+          <button class="btn" type="button" data-tool="clear" aria-pressed="false">Clear debris</button>
+          <button class="btn" type="button" data-tool="road" aria-pressed="false">Draw road</button>
+          <button class="btn" type="button" data-tool="wall" aria-pressed="false">Erase road</button>
+        </div>
+        <p class="hint">Click near a road for Start and Target. Drag for the other tools.</p>
+      </div>
+
+      <div class="grp">
+        <h2>Search</h2>
+        <div class="field" style="margin-top:0">
+          <label for="algo">Algorithm</label>
+          <select id="algo"><option value="dfs">DFS (depth-first)</option><option value="bfs">BFS (comparison)</option></select>
+        </div>
+        <div class="field">
+          <label for="order">Direction order</label>
+          <select id="order">
+            <option value="NESW">North first</option>
+            <option value="ESWN">East first</option>
+            <option value="SWNE">South first</option>
+            <option value="WNES">West first</option>
+            <option value="target">Toward the target first</option>
+            <option value="random">Random</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="1" max="8" value="4">
+        </div>
+        <label class="check"><input type="checkbox" id="cut" checked><span>Show cut-off zones</span></label>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" id="b-run" type="button">Run search</button>
+          <button class="btn" id="b-step" type="button">Step</button>
+          <button class="btn" id="b-reset" type="button">Reset</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2>The algorithm</h2>
+<pre>DFS(start, target):
+  stack   ← [start]
+  visited ← { start }
+  while stack is not empty:
+    pixel ← top of stack
+    if pixel has an unvisited road neighbour n:
+        visited ← visited + { n }
+        push n
+        if n = target: return stack    # the path
+    else:
+        pop                            # backtrack
+  return NO ROUTE                      # target is cut off</pre>
+    </div>
+    <div>
+      <h2>How the map becomes a graph</h2>
+      <p>A black-hat filter picks out thin lines that differ from the ground around them, so water edges, parks and big shapes are ignored. The detected lines are thinned to one-pixel centerlines. Each centerline pixel is a node with up to eight neighbours, so the search follows the real curves of the streets.</p>
+      <p>The stack is the path the rescue unit is walking right now. When the search ends with an empty stack, every road reachable from the base has been checked and the target is not among them. Those cut-off roads need air rescue or debris clearing.</p>
+      <p>Switch to BFS to compare. DFS finds a route quickly but not the shortest one. Lengths count centerline pixel steps.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+/*PURE-START*/
+function lumOf(d,N){var L=new Float32Array(N);for(var i=0;i<N;i++)L[i]=(0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2])/255;return L}
+function rankFilter(src,w,h,r,isMax){
+  var tmp=new Float32Array(src.length),out=new Float32Array(src.length),x,y,k,v,s,row,a,b;
+  for(y=0;y<h;y++){
+    row=y*w;
+    for(x=0;x<w;x++){
+      v=src[row+x];a=x-r<0?0:x-r;b=x+r>w-1?w-1:x+r;
+      for(k=a;k<=b;k++){s=src[row+k];if(isMax?s>v:s<v)v=s}
+      tmp[row+x]=v;
+    }
+  }
+  for(y=0;y<h;y++){
+    a=y-r<0?0:y-r;b=y+r>h-1?h-1:y+r;
+    for(x=0;x<w;x++){
+      v=tmp[y*w+x];
+      for(k=a;k<=b;k++){s=tmp[k*w+x];if(isMax?s>v:s<v)v=s}
+      out[y*w+x]=v;
+    }
+  }
+  return out;
+}
+function hats(L,w,h,r){
+  var BH=new Float32Array(L.length),WH=new Float32Array(L.length),radii=[r,2*r+1],j,i;
+  for(j=0;j<radii.length;j++){
+    var q=radii[j];
+    var clo=rankFilter(rankFilter(L,w,h,q,true),w,h,q,false);
+    var ope=rankFilter(rankFilter(L,w,h,q,false),w,h,q,true);
+    for(i=0;i<L.length;i++){
+      var b=clo[i]-L[i],wv=L[i]-ope[i];
+      if(b>BH[i])BH[i]=b;
+      if(wv>WH[i])WH[i]=wv;
+    }
+  }
+  return {BH:BH,WH:WH};
+}
+function autoThreshold(f){
+  var pos=[],i;
+  for(i=0;i<f.length;i++)if(f[i]>0.015)pos.push(f[i]);
+  if(pos.length<50)return 0.05;
+  var a=Float32Array.from(pos);a.sort();
+  var p=a[Math.floor(a.length*0.75)];
+  return Math.min(0.08,Math.max(0.02,0.45*p));
+}
+function dropSmall(m,w,h,minSize){
+  var N=w*h,seen=new Uint8Array(N),q=new Int32Array(N),s,i,d,c,x,y,nx,ny,k;
+  for(s=0;s<N;s++){
+    if(!m[s]||seen[s])continue;
+    var head=0,tail=0;q[tail++]=s;seen[s]=1;
+    while(head<tail){
+      c=q[head++];x=c%w;y=(c/w)|0;
+      for(d=0;d<8;d++){
+        nx=x+[0,1,1,1,0,-1,-1,-1][d];ny=y+[-1,-1,0,1,1,1,0,-1][d];
+        if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        k=ny*w+nx;
+        if(m[k]&&!seen[k]){seen[k]=1;q[tail++]=k}
+      }
+    }
+    if(tail<minSize)for(i=0;i<tail;i++)m[q[i]]=0;
+  }
+}
+function dilate3(m,w,h){
+  var out=new Uint8Array(m.length),x,y,i;
+  for(y=1;y<h-1;y++)for(x=1;x<w-1;x++){
+    i=y*w+x;
+    if(m[i]||m[i-1]||m[i+1]||m[i-w]||m[i+w]||m[i-w-1]||m[i-w+1]||m[i+w-1]||m[i+w+1])out[i]=1;
+  }
+  return out;
+}
+function thin(m,w,h){
+  var changed=true,del=[],x,y,i,k,pass,p2,p3,p4,p5,p6,p7,p8,p9,B,A;
+  while(changed){
+    changed=false;
+    for(pass=0;pass<2;pass++){
+      del.length=0;
+      for(y=1;y<h-1;y++)for(x=1;x<w-1;x++){
+        i=y*w+x;if(!m[i])continue;
+        p2=m[i-w];p3=m[i-w+1];p4=m[i+1];p5=m[i+w+1];p6=m[i+w];p7=m[i+w-1];p8=m[i-1];p9=m[i-w-1];
+        B=p2+p3+p4+p5+p6+p7+p8+p9;if(B<2||B>6)continue;
+        A=(p2===0&&p3===1?1:0)+(p3===0&&p4===1?1:0)+(p4===0&&p5===1?1:0)+(p5===0&&p6===1?1:0)+(p6===0&&p7===1?1:0)+(p7===0&&p8===1?1:0)+(p8===0&&p9===1?1:0)+(p9===0&&p2===1?1:0);
+        if(A!==1)continue;
+        if(pass===0){if(p2*p4*p6!==0||p4*p6*p8!==0)continue}
+        else{if(p2*p4*p8!==0||p2*p6*p8!==0)continue}
+        del.push(i);
+      }
+      if(del.length){changed=true;for(k=0;k<del.length;k++)m[del[k]]=0}
+    }
+  }
+}
+function skeletonFrom(f,w,h,sens){
+  var N=w*h,t=(sens==null)?autoThreshold(f):sens,m=new Uint8Array(N),i,x,y;
+  for(i=0;i<N;i++)m[i]=f[i]>t?1:0;
+  for(x=0;x<w;x++){m[x]=0;m[(h-1)*w+x]=0}
+  for(y=0;y<h;y++){m[y*w]=0;m[y*w+w-1]=0}
+  dropSmall(m,w,h,Math.max(25,Math.round(N/12000)));
+  m=dilate3(m,w,h);
+  thin(m,w,h);
+  dropSmall(m,w,h,Math.max(60,Math.round(N/6000)));
+  return {m:m,t:t};
+}
+function largestSize(m,w,h){
+  var N=w*h,seen=new Uint8Array(N),q=new Int32Array(N),best=0,s,d,c,x,y,nx,ny,k;
+  var DX=[0,1,1,1,0,-1,-1,-1],DY=[-1,-1,0,1,1,1,0,-1];
+  for(s=0;s<N;s++){
+    if(!m[s]||seen[s])continue;
+    var head=0,tail=0;q[tail++]=s;seen[s]=1;
+    while(head<tail){
+      c=q[head++];x=c%w;y=(c/w)|0;
+      for(d=0;d<8;d++){
+        nx=x+DX[d];ny=y+DY[d];
+        if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        k=ny*w+nx;
+        if(m[k]&&!seen[k]){seen[k]=1;q[tail++]=k}
+      }
+    }
+    if(tail>best)best=tail;
+  }
+  return best;
+}
+function traceRoads(rgba,w,h,polarity,sens){
+  var N=w*h,L=lumOf(rgba,N),r=Math.max(2,Math.round(w/250)),H=hats(L,w,h,r),i,pol,sk;
+  if(polarity==='dark'){pol='dark';sk=skeletonFrom(H.BH,w,h,sens)}
+  else if(polarity==='light'){pol='light';sk=skeletonFrom(H.WH,w,h,sens)}
+  else{
+    var a=skeletonFrom(H.BH,w,h,sens),b=skeletonFrom(H.WH,w,h,sens);
+    if(largestSize(b.m,w,h)>largestSize(a.m,w,h)*1.25){pol='light';sk=b}else{pol='dark';sk=a}
+  }
+  var cnt=0;for(i=0;i<N;i++)cnt+=sk.m[i];
+  return {road:sk.m,polarity:pol,t:sk.t,count:cnt};
+}
+/*PURE-END*/
+
+(function(){
+  var $=function(s){return document.querySelector(s)};
+  var TAU=Math.PI*2;
+  var D={N:[0,-1],E:[1,0],S:[0,1],W:[-1,0],NE:[1,-1],SE:[1,1],SW:[-1,1],NW:[-1,-1]};
+  var ORDERS={
+    NESW:['N','E','S','W','NE','SE','SW','NW'],
+    ESWN:['E','S','W','N','SE','SW','NW','NE'],
+    SWNE:['S','W','N','E','SW','NW','NE','SE'],
+    WNES:['W','N','E','S','NW','NE','SE','SW']
+  };
+  Object.keys(ORDERS).forEach(function(k){ORDERS[k]=ORDERS[k].map(function(n){return D[n]})});
+  var ALL8=[D.N,D.E,D.S,D.W,D.NE,D.SE,D.SW,D.NW];
+  var wW=1000,wH=620,N=wW*wH;
+  var baseGrid=new Uint8Array(N).fill(1),grid=new Uint8Array(N).fill(1),roadList=[],blobs=[];
+  var pix=null,workCv=null,srcImg=null,sampleCv=null,seed=11,info=null;
+  var start=-1,target=-1,tool='start',run=null,playing=false,dirty=true;
+  var reach=null,cutCount=0,roadCount=0,reachN=0,shortest=null;
+  var canvas=$('#map'),ctx=canvas.getContext('2d'),C={},orderSel=$('#order');
+
+  function inb(x,y){return x>=0&&y>=0&&x<wW&&y<wH}
+  function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  function setMsg(t){$('#msg').textContent=t}
+
+  /* ---------- organic sample map, drawn like a light web map ---------- */
+  function sampleMap(sd){
+    var r=mulberry(sd),w=1000,h=620,cv=document.createElement('canvas');
+    cv.width=w;cv.height=h;
+    var g=cv.getContext('2d'),i,j;
+    g.fillStyle='#f3f3f2';g.fillRect(0,0,w,h);
+    var cx=w*(0.25+r()*0.5),cy=h*(0.25+r()*0.5),R=Math.min(w,h)*(0.17+r()*0.07),ph=[r()*6,r()*6,r()*6];
+    function lakeR(a){return R*(1+0.28*Math.sin(2*a+ph[0])+0.18*Math.sin(3*a+ph[1])+0.1*Math.sin(5*a+ph[2]))}
+    function inLake(x,y){return Math.hypot(x-cx,y-cy)<lakeR(Math.atan2(y-cy,x-cx))*1.04}
+    g.beginPath();
+    for(i=0;i<=72;i++){var a=i/72*TAU,rr=lakeR(a);var px=cx+Math.cos(a)*rr,py=cy+Math.sin(a)*rr;if(i===0)g.moveTo(px,py);else g.lineTo(px,py)}
+    g.closePath();g.fillStyle='#8edbee';g.fill();
+    for(i=0;i<3;i++){
+      var gx=r()*w,gy=r()*h;
+      if(inLake(gx,gy))continue;
+      g.beginPath();g.ellipse(gx,gy,28+r()*40,18+r()*28,r()*3,0,TAU);g.fillStyle='#c6f0d6';g.fill();
+    }
+    var cs=50,cols=Math.ceil(w/cs)+1,rows=Math.ceil(h/cs)+1,nodes=[];
+    for(j=0;j<rows;j++)for(i=0;i<cols;i++){
+      var nx=(i+(r()-0.5)*0.8)*cs,ny=(j+(r()-0.5)*0.8)*cs;
+      nodes.push({x:nx,y:ny,lake:inLake(nx,ny)});
+    }
+    var MINOR='#c9d1da';
+    function edge(a,b,wid,col,bend){
+      if(!a||!b||a.lake||b.lake)return;
+      var mx=(a.x+b.x)/2+(r()-0.5)*cs*bend,my=(a.y+b.y)/2+(r()-0.5)*cs*bend;
+      if(inLake(mx,my)||inLake((a.x+b.x)/2,(a.y+b.y)/2))return;
+      g.beginPath();g.moveTo(a.x,a.y);g.quadraticCurveTo(mx,my,b.x,b.y);
+      g.lineWidth=wid;g.strokeStyle=col;g.lineCap='round';g.stroke();
+    }
+    function nd(i2,j2){return(i2<0||j2<0||i2>=cols||j2>=rows)?null:nodes[j2*cols+i2]}
+    for(j=0;j<rows;j++)for(i=0;i<cols;i++){
+      var a2=nd(i,j);
+      if(r()<0.88)edge(a2,nd(i+1,j),2.4,MINOR,0.6);
+      if(r()<0.88)edge(a2,nd(i,j+1),2.4,MINOR,0.6);
+      if(r()<0.2)edge(a2,nd(i+1,j+1),2.4,MINOR,0.5);
+      if(r()<0.14)edge(a2,nd(i-1,j+1),2.4,MINOR,0.5);
+    }
+    var rj=[Math.round(rows*0.3),Math.round(rows*0.7)],ci=Math.round(cols*(0.3+r()*0.4));
+    rj.forEach(function(row){for(i=0;i<cols-1;i++)edge(nd(i,row),nd(i+1,row),5,'#8da2bf',0.25)});
+    for(j=0;j<rows-1;j++)edge(nd(ci,j),nd(ci,j+1),5,'#8da2bf',0.25);
+    return cv;
+  }
+
+  /* ---------- loading and tracing ---------- */
+  function buildRoadList(){
+    roadList=[];
+    for(var k=0;k<N;k++)if(baseGrid[k]===0)roadList.push(k);
+  }
+  function loadSource(){
+    var src=srcImg||sampleCv,sw=src.naturalWidth||src.width,sh=src.naturalHeight||src.height;
+    var sc=Math.min(1000/sw,700/sh,2);
+    wW=Math.max(60,Math.round(sw*sc));wH=Math.max(60,Math.round(sh*sc));N=wW*wH;
+    canvas.width=wW;canvas.height=wH;
+    workCv=document.createElement('canvas');workCv.width=wW;workCv.height=wH;
+    var wc=workCv.getContext('2d');
+    wc.fillStyle='#fff';wc.fillRect(0,0,wW,wH);
+    wc.imageSmoothingQuality='high';
+    wc.drawImage(src,0,0,wW,wH);
+    pix=wc.getImageData(0,0,wW,wH).data;
+    grid=new Uint8Array(N);
+  }
+  function traceMap(){
+    var sens=$('#auto').checked?null:Number($('#thr').value);
+    info=traceRoads(pix,wW,wH,$('#pol').value,sens);
+    if($('#auto').checked){$('#thr').value=Math.min(0.25,Math.max(0.01,info.t)).toFixed(3);}
+    $('#v-thr').textContent=info.t.toFixed(3);
+    baseGrid=new Uint8Array(N).fill(1);
+    for(var k=0;k<N;k++)if(info.road[k])baseGrid[k]=0;
+    buildRoadList();
+  }
+  function makeDamage(){
+    var r=mulberry(seed*31+7),sc=wW/1000,dmg=Number($('#damage').value)/100,i;
+    blobs=[];
+    if(!roadList.length)return;
+    var n=Math.round(dmg*36);
+    for(i=0;i<n;i++){
+      var k=roadList[Math.floor(r()*roadList.length)];
+      blobs.push({x:k%wW,y:(k/wW)|0,r:(7+r()*9)*sc});
+    }
+    if($('#band').checked){
+      var y0=wH*(0.25+r()*0.5),y1=wH*(0.25+r()*0.5),th=9*sc;
+      for(var x=0;x<wW;x+=Math.max(4,th*0.9))if(r()<0.88)blobs.push({x:x,y:y0+(y1-y0)*x/wW,r:th});
+    }
+  }
+  function rebuildGrid(){
+    grid.set(baseGrid);
+    for(var i=0;i<blobs.length;i++){
+      var b=blobs[i],x0=Math.max(0,Math.floor(b.x-b.r)),x1=Math.min(wW-1,Math.ceil(b.x+b.r)),y0=Math.max(0,Math.floor(b.y-b.r)),y1=Math.min(wH-1,Math.ceil(b.y+b.r)),r2=b.r*b.r;
+      for(var y=y0;y<=y1;y++)for(var x=x0;x<=x1;x++){
+        if((x-b.x)*(x-b.x)+(y-b.y)*(y-b.y)<=r2){var k=y*wW+x;if(grid[k]===0)grid[k]=2}
+      }
+    }
+  }
+  function largestComp(){
+    var lab=new Int32Array(N).fill(-1),q=new Int32Array(N),best=-1,bestSize=0,id=0,s,d;
+    for(s=0;s<N;s++){
+      if(grid[s]!==0||lab[s]>=0)continue;
+      var h=0,t=0;q[t++]=s;lab[s]=id;
+      while(h<t){
+        var c=q[h++],cx=c%wW,cy=(c/wW)|0;
+        for(d=0;d<8;d++){
+          var x=cx+ALL8[d][0],y=cy+ALL8[d][1];
+          if(!inb(x,y))continue;
+          var k=y*wW+x;
+          if(grid[k]===0&&lab[k]<0){lab[k]=id;q[t++]=k}
+        }
+      }
+      if(t>bestSize){bestSize=t;best=id}
+      id++;
+    }
+    return {lab:lab,best:best,size:bestSize};
+  }
+  function pickEndpoints(){
+    start=-1;target=-1;
+    var L=largestComp();
+    if(L.best<0||L.size<20)return;
+    var ax=wW*0.12,ay=wH*0.15,bx=wW*0.88,by=wH*0.85,bs=1e12,bt=1e12;
+    for(var i=0;i<roadList.length;i++){
+      var k=roadList[i];if(L.lab[k]!==L.best)continue;
+      var x=k%wW,y=(k/wW)|0,ds=(x-ax)*(x-ax)+(y-ay)*(y-ay),dt=(x-bx)*(x-bx)+(y-by)*(y-by);
+      if(ds<bs){bs=ds;start=k}
+      if(dt<bt){bt=dt;target=k}
+    }
+  }
+  function recomputeReach(){
+    var k;
+    roadCount=0;for(k=0;k<roadList.length;k++)roadCount++;
+    reach=null;cutCount=0;reachN=0;shortest=null;
+    if(start<0||grid[start]!==0)return;
+    var dist=new Int32Array(N).fill(-1),q=new Int32Array(N),h=0,t=0;
+    q[t++]=start;dist[start]=0;
+    while(h<t){
+      var c=q[h++],cx=c%wW,cy=(c/wW)|0;
+      for(var d=0;d<8;d++){
+        var x=cx+ALL8[d][0],y=cy+ALL8[d][1];
+        if(!inb(x,y))continue;
+        var n=y*wW+x;
+        if(grid[n]===0&&dist[n]<0){dist[n]=dist[c]+1;q[t++]=n}
+      }
+    }
+    reach=new Uint8Array(N);
+    for(k=0;k<N;k++)if(dist[k]>=0)reach[k]=1;
+    reachN=t;
+    var open=0;for(k=0;k<roadList.length;k++)if(grid[roadList[k]]===0)open++;
+    cutCount=open-t;
+    if(target>=0&&dist[target]>=0)shortest=dist[target];
+  }
+
+  /* ---------- search ---------- */
+  function dirsFor(k){
+    var o=orderSel.value;
+    if(o==='random'){
+      var a=ALL8.slice();
+      for(var i=7;i>0;i--){var j=(Math.random()*(i+1))|0;var tmp=a[i];a[i]=a[j];a[j]=tmp}
+      return a;
+    }
+    if(o==='target'){
+      var x=k%wW,y=(k/wW)|0,tx=target%wW,ty=(target/wW)|0;
+      return ALL8.slice().sort(function(p,q){
+        return ((x+p[0]-tx)*(x+p[0]-tx)+(y+p[1]-ty)*(y+p[1]-ty))-((x+q[0]-tx)*(x+q[0]-tx)+(y+q[1]-ty)*(y+q[1]-ty));
+      });
+    }
+    return ORDERS[o];
+  }
+  function makeRun(){
+    var r={algo:$('#algo').value,visited:new Uint8Array(N),popped:new Uint8Array(N),parent:new Int32Array(N).fill(-1),
+      stack:[],queue:[],qi:0,nodes:1,backtracks:0,peak:1,done:false,found:false,path:null,head:start};
+    r.visited[start]=1;
+    if(r.algo==='dfs')r.stack.push({n:start,d:0,dirs:dirsFor(start)});else r.queue.push(start);
+    return r;
+  }
+  function stepRun(r){
+    if(r.done)return;
+    if(r.algo==='dfs'){
+      for(;;){
+        var top=r.stack[r.stack.length-1];
+        if(!top){r.done=true;return}
+        r.head=top.n;
+        if(top.d>=8){
+          r.stack.pop();r.popped[top.n]=1;r.backtracks++;
+          var t2=r.stack[r.stack.length-1];if(t2)r.head=t2.n;
+          return;
+        }
+        var d=top.dirs[top.d++],x=(top.n%wW)+d[0],y=((top.n/wW)|0)+d[1];
+        if(!inb(x,y))continue;
+        var k=y*wW+x;
+        if(grid[k]!==0||r.visited[k])continue;
+        r.visited[k]=1;r.parent[k]=top.n;r.nodes++;
+        r.stack.push({n:k,d:0,dirs:dirsFor(k)});r.head=k;
+        if(r.stack.length>r.peak)r.peak=r.stack.length;
+        if(k===target){r.done=r.found=true;r.path=r.stack.map(function(s){return s.n})}
+        return;
+      }
+    }
+    if(r.qi>=r.queue.length){r.done=true;return}
+    var c=r.queue[r.qi++];r.head=c;
+    var cx=c%wW,cy=(c/wW)|0;
+    for(var i=0;i<8;i++){
+      var nx=cx+ALL8[i][0],ny=cy+ALL8[i][1];
+      if(!inb(nx,ny))continue;
+      var n=ny*wW+nx;
+      if(grid[n]!==0||r.visited[n])continue;
+      r.visited[n]=1;r.parent[n]=c;r.nodes++;r.queue.push(n);
+      if(n===target){
+        r.done=r.found=true;
+        var p=[];for(var a=n;a!==-1;a=r.parent[a])p.push(a);
+        r.path=p.reverse();break;
+      }
+    }
+    var q=r.queue.length-r.qi;if(q>r.peak)r.peak=q;
+  }
+  function finish(r){var g=0;while(!r.done&&g++<5000000)stepRun(r)}
+  function report(r){
+    var name=r.algo==='dfs'?'DFS':'BFS';
+    if(r.found){
+      var moves=r.path.length-1,t=name+' reached the survivors in '+moves+' steps after exploring '+r.nodes+' road pixels';
+      if(r.algo==='dfs')t+=' and backing out of '+r.backtracks+' dead ends';
+      t+='.';
+      if(shortest!==null)t+=moves===shortest?' That is the shortest possible route.':' The shortest possible route is '+shortest+' steps.';
+      setMsg(t);
+    }else{
+      setMsg('No ground route. '+name+' searched all '+r.nodes+' reachable road pixels and the target is sealed off by debris. This zone needs air rescue or debris clearing.');
+    }
+  }
+  function refresh(repick){
+    rebuildGrid();
+    if(repick||start<0||target<0||grid[start]!==0||grid[target]!==0||start===target)pickEndpoints();
+    recomputeReach();
+    playing=false;
+    if(start>=0&&target>=0){run=makeRun();finish(run);report(run)}
+    else{run=null;setMsg('No roads found to search. Try another "Roads look" setting, raise the sensitivity, or trace streets with Draw road.')}
+    dirty=true;syncButtons();
+  }
+  function detectNote(){
+    if(!info)return;
+    var s=' Road network: '+info.count+' pixels ('+(info.polarity==='dark'?'roads darker':'roads lighter')+' than the ground).';
+    $('#msg').textContent+=s;
+  }
+
+  /* ---------- drawing ---------- */
+  function readColors(){
+    var s=getComputedStyle(document.documentElement);
+    ['bldg','road','debris','debris-ink','visit','path','cut','base','letter','target','veil','net'].forEach(function(k){C[k]=s.getPropertyValue('--c-'+k).trim()});
+  }
+  function marker(k,fill,letter){
+    var x=(k%wW)+0.5,y=((k/wW)|0)+0.5,r=Math.max(10,wW/85);
+    ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fillStyle=fill;ctx.fill();
+    ctx.lineWidth=2.5;ctx.strokeStyle=C.veil;ctx.stroke();
+    ctx.fillStyle=C.letter;ctx.font='600 '+Math.round(r*1.15)+'px "IBM Plex Mono",monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,x,y+1);
+  }
+  function draw(){
+    readColors();
+    var W=wW,H=wH,ps=Math.max(2,W/430),h2=ps/2,i,k,ul=!!workCv&&$('#under').checked;
+    ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;
+    if(ul){ctx.drawImage(workCv,0,0);ctx.globalAlpha=0.4;ctx.fillStyle=C.veil;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1}
+    else{ctx.fillStyle=C.bldg;ctx.fillRect(0,0,W,H)}
+    if($('#net').checked||!ul){
+      ctx.fillStyle=ul?C.net:C.road;ctx.globalAlpha=ul?0.85:1;
+      for(i=0;i<roadList.length;i++){k=roadList[i];if(baseGrid[k]!==0)continue;ctx.fillRect((k%W)+0.5-h2,((k/W)|0)+0.5-h2,ps,ps)}
+      ctx.globalAlpha=1;
+    }
+    for(i=0;i<blobs.length;i++){
+      var b=blobs[i];
+      ctx.beginPath();ctx.arc(b.x+0.5,b.y+0.5,b.r,0,TAU);
+      ctx.globalAlpha=0.92;ctx.fillStyle=C.debris;ctx.fill();ctx.globalAlpha=1;
+      ctx.lineWidth=Math.max(1.5,W/500);ctx.strokeStyle=C['debris-ink'];ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(b.x-b.r*0.5,b.y+b.r*0.3);ctx.lineTo(b.x+b.r*0.1,b.y-b.r*0.5);
+      ctx.moveTo(b.x-b.r*0.1,b.y+b.r*0.55);ctx.lineTo(b.x+b.r*0.55,b.y-b.r*0.1);
+      ctx.stroke();
+    }
+    if($('#cut').checked&&reach){
+      ctx.fillStyle=C.cut;
+      for(i=0;i<roadList.length;i++){k=roadList[i];if(grid[k]===0&&!reach[k])ctx.fillRect((k%W)+0.5-h2,((k/W)|0)+0.5-h2,ps,ps)}
+    }
+    if(run){
+      ctx.fillStyle=C.visit;
+      var arr=run.algo==='dfs'?run.popped:run.visited;
+      for(i=0;i<roadList.length;i++){k=roadList[i];if(arr[k])ctx.fillRect((k%W)+0.5-h2,((k/W)|0)+0.5-h2,ps,ps)}
+      var cells=run.algo==='dfs'?run.stack:null,len=cells?cells.length:(run.path?run.path.length:0);
+      if(len>1){
+        ctx.strokeStyle=C.path;ctx.lineWidth=Math.max(3,W/230);ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
+        for(i=0;i<len;i++){
+          var c=cells?cells[i].n:run.path[i];
+          if(i===0)ctx.moveTo((c%W)+0.5,((c/W)|0)+0.5);else ctx.lineTo((c%W)+0.5,((c/W)|0)+0.5);
+        }
+        ctx.stroke();
+      }
+      if(!run.done&&run.head>=0){
+        ctx.beginPath();ctx.arc((run.head%W)+0.5,((run.head/W)|0)+0.5,Math.max(4,ps*1.8),0,TAU);
+        ctx.fillStyle=C.path;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=C.base;ctx.stroke();
+      }
+    }
+    if(start>=0)marker(start,C.base,'S');
+    if(target>=0)marker(target,C.target,'T');
+  }
+  function updateStats(){
+    $('#s-nodes').textContent=run?run.nodes:0;
+    var a=run?run.algo:$('#algo').value;
+    $('#s-peak-l').textContent=a==='dfs'?'Peak stack':'Peak queue';
+    $('#s-peak').textContent=run?run.peak:0;
+    $('#s-back').textContent=run&&run.algo==='dfs'?run.backtracks:'–';
+    $('#s-route').textContent=run&&run.found?(run.path.length-1):'–';
+    $('#s-short').textContent=shortest!==null?shortest:'–';
+    var open=roadList.length,pct=open?Math.round(cutCount/open*100):0;
+    $('#s-cut').textContent=cutCount+' ('+pct+'%)';
+  }
+  function syncButtons(){
+    $('#b-run').textContent=run&&run.done?'Run again':(run&&playing?'Pause':(run&&run.nodes>1?'Resume':'Run search'));
+  }
+
+  /* ---------- interaction ---------- */
+  function cellAt(e){
+    var r=canvas.getBoundingClientRect();
+    var x=Math.floor((e.clientX-r.left)/r.width*wW),y=Math.floor((e.clientY-r.top)/r.height*wH);
+    return inb(x,y)?y*wW+x:-1;
+  }
+  function nearestRoad(k,rad){
+    var cx=k%wW,cy=(k/wW)|0,best=-1,bd=1e12;
+    for(var y=cy-rad;y<=cy+rad;y++)for(var x=cx-rad;x<=cx+rad;x++){
+      if(!inb(x,y)||grid[y*wW+x]!==0)continue;
+      var dd=(x-cx)*(x-cx)+(y-cy)*(y-cy);
+      if(dd<bd){bd=dd;best=y*wW+x}
+    }
+    return best;
+  }
+  function place(k){
+    var s=nearestRoad(k,Math.round(wW/22));
+    if(s<0){setMsg('No road near that spot. Click closer to a detected road, or trace one with Draw road.');return}
+    if(tool==='start'){if(s===target)return;start=s}
+    else{if(s===start)return;target=s}
+    refresh(false);
+  }
+  function line(a,b,fn){
+    var x0=a%wW,y0=(a/wW)|0,x1=b%wW,y1=(b/wW)|0,dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,e=dx+dy;
+    for(;;){
+      fn(x0,y0);
+      if(x0===x1&&y0===y1)break;
+      var e2=2*e;
+      if(e2>=dy){e+=dy;x0+=sx}
+      if(e2<=dx){e+=dx;y0+=sy}
+    }
+  }
+  function nearEnd(x,y,rad){
+    var sx=start%wW,sy=(start/wW)|0,tx=target%wW,ty=(target/wW)|0;
+    return (start>=0&&Math.hypot(x-sx,y-sy)<rad)||(target>=0&&Math.hypot(x-tx,y-ty)<rad);
+  }
+  function applyTool(a,b){
+    var sc=wW/1000,br=Math.max(6,9*sc),er=Math.max(3,Math.round(4*sc));
+    line(a,b,function(x,y){
+      if(!inb(x,y))return;
+      var k=y*wW+x,i,dx,dy;
+      if(tool==='road'){
+        if(baseGrid[k]!==0){baseGrid[k]=0;grid[k]=0;roadList.push(k)}
+      }else if(tool==='wall'){
+        for(dy=-er;dy<=er;dy++)for(dx=-er;dx<=er;dx++){
+          if(dx*dx+dy*dy>er*er||!inb(x+dx,y+dy))continue;
+          var q=(y+dy)*wW+x+dx;
+          if(q===start||q===target)continue;
+          baseGrid[q]=1;grid[q]=1;
+        }
+      }else if(tool==='debris'){
+        if(nearEnd(x,y,br+4))return;
+        for(i=0;i<blobs.length;i++)if(Math.hypot(blobs[i].x-x,blobs[i].y-y)<br*0.8)return;
+        blobs.push({x:x,y:y,r:br});
+      }else if(tool==='clear'){
+        blobs=blobs.filter(function(bb){return Math.hypot(bb.x-x,bb.y-y)>=br+bb.r});
+      }
+    });
+    dirty=true;
+  }
+  var painting=false,lastK=-1;
+  canvas.addEventListener('pointerdown',function(e){
+    var k=cellAt(e);if(k<0)return;
+    if(tool==='start'||tool==='target'){place(k);return}
+    painting=true;lastK=k;run=null;playing=false;
+    try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+    applyTool(k,k);
+  });
+  canvas.addEventListener('pointermove',function(e){
+    if(!painting)return;
+    var k=cellAt(e);if(k<0)return;
+    applyTool(lastK,k);lastK=k;
+  });
+  function endStroke(){
+    if(!painting)return;
+    painting=false;buildRoadList();refresh(false);
+  }
+  ['pointerup','pointercancel'].forEach(function(t){canvas.addEventListener(t,endStroke)});
+
+  document.querySelectorAll('[data-tool]').forEach(function(b){
+    b.addEventListener('click',function(){
+      tool=b.getAttribute('data-tool');
+      document.querySelectorAll('[data-tool]').forEach(function(o){o.setAttribute('aria-pressed',String(o===b))});
+      canvas.classList.toggle('paint',tool!=='start'&&tool!=='target');
+    });
+  });
+
+  function newSample(){
+    srcImg=null;sampleCv=sampleMap(seed);
+    loadSource();traceMap();makeDamage();refresh(true);detectNote();
+  }
+  $('#b-new').addEventListener('click',function(){seed=(seed*7919+13)%100003;newSample()});
+  $('#damage').addEventListener('input',function(){
+    $('#v-damage').textContent=this.value+'%';
+    makeDamage();refresh(false);
+  });
+  $('#band').addEventListener('change',function(){makeDamage();refresh(false)});
+  function retrace(){traceMap();makeDamage();refresh(true);detectNote()}
+  $('#pol').addEventListener('change',retrace);
+  $('#auto').addEventListener('change',function(){$('#thr').disabled=this.checked;retrace()});
+  $('#thr').addEventListener('change',retrace);
+  $('#thr').addEventListener('input',function(){$('#v-thr').textContent=Number(this.value).toFixed(3)});
+  $('#under').addEventListener('change',function(){dirty=true});
+  $('#net').addEventListener('change',function(){dirty=true});
+  $('#cut').addEventListener('change',function(){dirty=true});
+  $('#file').addEventListener('change',function(e){
+    var f=e.target.files&&e.target.files[0];e.target.value='';
+    if(!f)return;
+    var fr=new FileReader();
+    fr.onload=function(){
+      var im=new Image();
+      im.onload=function(){srcImg=im;loadSource();traceMap();makeDamage();refresh(true);detectNote()};
+      im.onerror=function(){setMsg('That file could not be read as an image.')};
+      im.src=fr.result;
+    };
+    fr.readAsDataURL(f);
+  });
+  $('#b-file').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#file').click()}});
+  $('#algo').addEventListener('change',function(){if(start>=0&&target>=0)refresh(false)});
+  orderSel.addEventListener('change',function(){if(start>=0&&target>=0)refresh(false)});
+
+  $('#b-run').addEventListener('click',function(){
+    if(start<0||target<0){setMsg('Place a start and a target near a road first.');return}
+    if(!run||run.done){run=makeRun();playing=true;setMsg('Searching…')}
+    else playing=!playing;
+    syncButtons();dirty=true;
+  });
+  $('#b-step').addEventListener('click',function(){
+    if(start<0||target<0){setMsg('Place a start and a target near a road first.');return}
+    if(!run||run.done)run=makeRun();
+    playing=false;stepRun(run);
+    if(run.done)report(run);
+    syncButtons();dirty=true;
+  });
+  $('#b-reset').addEventListener('click',function(){
+    if(start<0||target<0)return;
+    run=makeRun();playing=false;
+    setMsg('Ready. Press Run search or Step.');
+    syncButtons();dirty=true;
+  });
+
+  var RATES=[6,12,24,50,100,200,400,800],last=performance.now(),acc=0;
+  function frame(now){
+    var dt=Math.min(now-last,100);last=now;
+    if(playing&&run&&!run.done){
+      var scale=Math.max(1,roadList.length/300);
+      acc+=dt*RATES[Number($('#speed').value)-1]*scale/1000;
+      var n=Math.min(Math.floor(acc),30000);acc-=Math.floor(acc);
+      if(n>0){
+        for(var i=0;i<n&&!run.done;i++)stepRun(run);
+        dirty=true;
+        if(run.done){playing=false;report(run);syncButtons()}
+      }
+    }
+    if(dirty){draw();updateStats();dirty=false}
+    requestAnimationFrame(frame);
+  }
+  var mq=window.matchMedia('(prefers-color-scheme: dark)');
+  if(mq.addEventListener)mq.addEventListener('change',function(){dirty=true});
+  new MutationObserver(function(){dirty=true}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+  newSample();
+  requestAnimationFrame(frame);
+})();
+</script>
